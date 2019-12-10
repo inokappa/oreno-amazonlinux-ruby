@@ -1,0 +1,87 @@
+version: 2.1
+executors:
+  default:
+    docker:
+      - image: docker:18.06.0-ce-git
+commands:
+  install_packages:
+    steps:
+      - run:
+         name: Install Packages
+         command: |
+           apk update && \
+           apk upgrade && \
+           apk add --no-cache \
+             bash \
+             curl-dev \
+             ruby-dev \
+             build-base \
+             git \
+             ruby \
+             ruby-irb \
+             ruby-io-console \
+             ruby-rdoc \
+             ruby-bundler
+  install_dependencies:
+    steps:
+      - run:
+          name: Install Dependencies
+          command: |
+            bundle install
+
+jobs:
+  check:
+    executor: 
+      name: default
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - install_packages
+      - install_dependencies
+      - run:
+          name: Check Differnce
+          command: |
+            ruby rubuild.rb diff -r oreno-amazonlinux-ruby
+  build:
+    executor:
+      name: default
+    parallelism: 3
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - install_packages
+      - install_dependencies
+      - run:
+          name: Image Build in Parallel
+          command: |
+            ruby rubuild.rb build -r oreno-amazonlinux-ruby \
+              --ver $(ruby rubuild.rb diff -r oreno-amazonlinux-ruby | circleci tests split)
+
+workflows:
+  check-and-build:
+    jobs:
+      - check
+      - build:
+          requires:
+            - check
+          filters:
+            branches:
+              only:
+                - master
+  scheduled-build:
+    triggers:
+      - schedule:
+          cron: "0 20 * * *"
+          filters:
+            branches:
+              only:
+                - master
+    jobs:
+      - check
+      - build:
+          filters:
+            branches:
+              only:
+                - master
